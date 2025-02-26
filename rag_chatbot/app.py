@@ -44,7 +44,7 @@ def load_existing_vector_store():
         return vector_store
     return None
 
-def add_to_vector_store(chunks, vector_store=None):
+def add_to_vector_store(chunks, vector_store=None): #aqui ele verifica se já existe um vector_store, se ja tiver ele so inicia, se nao tiver, ele crtia um ana hora.
     if vector_store:
         vector_store.add_documents(chunks)
     else:
@@ -125,17 +125,17 @@ with st.sidebar:
         options=model_options,
     )
 
-if 'messages' not in st.session_state:
+if 'messages' not in st.session_state: #aqui ele verifica se tem mensagens quando inicia a aplicação, se nao tem, ele mostra uma lista vazia
     st.session_state['messages'] = []
 
 question = st.chat_input('Como posso ajudar?')
 
 if vector_store and question:
-    for message in st.session_state.messages:
-        st.chat_message(message.get('role')).write(message.get('content'))
+    for message in st.session_state.messages: #para armazenar as perguntas e ter essa sensação de chat
+        st.chat_message(message.get('role')).write(message.get('content')) #aqui ele cria todo o histórido de perguntas do usuário e respostas da IA e identifica se a mensagem foi da IA ou foi uma pergunsta do usuário e ai ele mostra somente o content
 
-    st.chat_message('user').write(question)
-    st.session_state.messages.append({'role': 'user', 'content': question})
+    st.chat_message('user').write(question) #aqui ele mostra a pergunta que o usuário fez novamente, que é a última mensagem que o usuáruio fez
+    st.session_state.messages.append({'role': 'user', 'content': question}) # aqui ele adiciona a última pergunta que o usuário fez no histórico de mensagens, dando um append
 
     with st.spinner('Buscando resposta...'):
         response = ask_question(
