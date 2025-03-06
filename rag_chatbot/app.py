@@ -1,4 +1,5 @@
 import os
+from dotenv import load_dotenv
 import tempfile
 
 import streamlit as st
@@ -12,7 +13,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
-
+load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 persist_directory = 'db'
 
@@ -43,7 +44,10 @@ def load_existing_vector_store():
         return vector_store
     return None
 
-def add_to_vector_store(chunks, vector_store=None): #aqui ele verifica se já existe um vector_store, se ja tiver ele so inicia, se nao tiver, ele crtia um ana hora.
+def add_to_vector_store(chunks, vector_store=None):
+    if not chunks:
+        raise ValueError("Nenhum chunk foi gerado para adicionar ao vetor!")
+
     if vector_store:
         vector_store.add_documents(chunks)
     else:
@@ -53,6 +57,7 @@ def add_to_vector_store(chunks, vector_store=None): #aqui ele verifica se já ex
             persist_directory=persist_directory,
         )
     return vector_store
+
 
 def ask_question(model, query, vector_store):
     llm = ChatOpenAI(model=model)
@@ -116,8 +121,7 @@ with st.sidebar:
         'gpt-3.5-turbo',
         'gpt-4',
         'gpt-4-turbo',
-        'gpt-4o-mini',
-        'gpt-4o',
+        
     ]
     selected_model = st.sidebar.selectbox(
         label='Selecione o modelo LLM',
