@@ -13,6 +13,9 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
+os.system("apt-get update && apt-get install -y sqlite3 libsqlite3-dev")
+
+
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 persist_directory = 'db'
