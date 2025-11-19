@@ -1,154 +1,140 @@
 import os
-from dotenv import load_dotenv
 import tempfile
-
 import streamlit as st
+from dotenv import load_dotenv
 
-
+# LangChain Imports
+from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.chains.retrieval import create_retrieval_chain
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
-os.system("apt-get update && apt-get install -y sqlite3 libsqlite3-dev")
-
-
+# Configuração inicial
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-persist_directory = 'db'
+st.set_page_config(page_title='Chat RAG Inteligente', page_icon='🏈')
 
+# Definição de constantes
+PERSIST_DIRECTORY = 'db'
 
-def process_pdf(file):
+# Cache para evitar recarregar o modelo/banco a cada interação
+@st.cache_resource
+def get_vectorstore():
+    embedding = OpenAIEmbeddings()
+    if os.path.exists(PERSIST_DIRECTORY):
+        return Chroma(persist_directory=PERSIST_DIRECTORY, embedding_function=embedding)
+    return Chroma(persist_directory=PERSIST_DIRECTORY, embedding_function=embedding)
+
+def process_and_add_pdf(file, vector_store):
     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
         temp_file.write(file.read())
         temp_file_path = temp_file.name
 
-    loader = PyPDFLoader(temp_file_path)
-    docs = loader.load()
-
-    os.remove(temp_file_path)
-
-    text_spliter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=400,
-    )
-    chunks = text_spliter.split_documents(documents=docs)
-    return chunks
-
-def load_existing_vector_store():
-    if os.path.exists(os.path.join(persist_directory)):
-        vector_store = Chroma(
-            persist_directory=persist_directory,
-            embedding_function=OpenAIEmbeddings(),
-        )
-        return vector_store
-    return None
-
-def add_to_vector_store(chunks, vector_store=None):
-    if not chunks:
-        raise ValueError("Nenhum chunk foi gerado para adicionar ao vetor!")
-
-    if vector_store:
-        vector_store.add_documents(chunks)
-    else:
-        vector_store = Chroma.from_documents(
-            documents=chunks,
-            embedding=OpenAIEmbeddings(),
-            persist_directory=persist_directory,
-        )
-    return vector_store
-
-
-def ask_question(model, query, vector_store):
-    llm = ChatOpenAI(model=model)
-    retriever = vector_store.as_retriever()
-
-    system_prompt = '''
-    Use o contexto para responder as perguntas.
-    Se não encontrar uma resposta no contexto,
-    explique que não há informações disponíveis.
-    Responda em formato de markdown e com visualizações
-    elaboradas e interativas.
-    Contexto: {context}
-    '''
-    messages = [('system', system_prompt)]
-    for message in st.session_state.messages:
-        messages.append((message.get('role'), message.get('content')))
-    messages.append(('human', '{input}'))
-
-    prompt = ChatPromptTemplate.from_messages(messages)
-
-    question_answer_chain = create_stuff_documents_chain(
-        llm=llm,
-        prompt=prompt,
-    )
-    chain = create_retrieval_chain(
-        retriever=retriever,
-        combine_docs_chain=question_answer_chain,
-    )
-    response = chain.invoke({'input': query})
-    return response.get('answer')
-
-
-vector_store = load_existing_vector_store()
-
-st.set_page_config(
-    page_title='Chat TPG',
-    page_icon='👽',
-)
-st.header('Chat com os seus documentos! 👽')
-
-with st.sidebar:
-    st.header('Upload de arquivos 📄')
-    uploaded_files = st.file_uploader(
-        label='Faça o upload de arquivos PDF',
-        type=['pdf'],
-        accept_multiple_files=True,
-    )
-
-    if uploaded_files:
-        with st.spinner('Processando documentos...'):
-            all_chunks = []
-            for uploaded_file in uploaded_files:
-                chunks = process_pdf(file=uploaded_file)
-                all_chunks.extend(chunks)
-            vector_store = add_to_vector_store(
-                chunks=all_chunks,
-                vector_store=vector_store,
-            )
-
-    model_options = [
-        'gpt-3.5-turbo',
-        'gpt-4',
-        'gpt-4-turbo',
+    try:
+        loader = PyPDFLoader(temp_file_path)
+        docs = loader.load()
         
-    ]
-    selected_model = st.sidebar.selectbox(
-        label='Selecione o modelo LLM',
-        options=model_options,
-    )
+        # Dividir texto em chunks (Aumentei overlap para não perder contexto entre quebras)
+        from langchain.text_splitter import RecursiveCharacterTextSplitter
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        chunks = text_splitter.split_documents(docs)
+        
+        if chunks:
+            vector_store.add_documents(chunks)
+            return True
+    except Exception as e:
+        st.error(f"Erro ao processar PDF: {e}")
+        return False
+    finally:
+        os.remove(temp_file_path)
 
-if 'messages' not in st.session_state: #aqui ele verifica se tem mensagens quando inicia a aplicação, se nao tem, ele mostra uma lista vazia
-    st.session_state['messages'] = []
+def get_context_retriever_chain(vector_store, llm):
+    retriever = vector_store.as_retriever()
+    
+    # Prompt que instrui a IA a reformular a pergunta baseada no histórico
+    prompt = ChatPromptTemplate.from_messages([
+        MessagesPlaceholder(variable_name="chat_history"),
+        ("user", "{input}"),
+        ("user", "Dada a conversa acima, gere uma query de busca para encontrar informações relevantes para a conversa.")
+    ])
+    
+    return create_history_aware_retriever(llm, retriever, prompt)
 
-question = st.chat_input('Como posso ajudar?')
+def get_conversational_rag_chain(retriever_chain, llm):
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "Responda às perguntas do usuário com base no contexto abaixo:\n\n{context}"),
+        MessagesPlaceholder(variable_name="chat_history"),
+        ("user", "{input}"),
+    ])
+    
+    stuff_documents_chain = create_stuff_documents_chain(llm, prompt)
+    
+    return create_retrieval_chain(retriever_chain, stuff_documents_chain)
 
-if vector_store and question:
-    for message in st.session_state.messages: #para armazenar as perguntas e ter essa sensação de chat
-        st.chat_message(message.get('role')).write(message.get('content')) #aqui ele cria todo o histórido de perguntas do usuário e respostas da IA e identifica se a mensagem foi da IA ou foi uma pergunsta do usuário e ai ele mostra somente o content
+# --- INTERFACE GRÁFICA ---
 
-    st.chat_message('user').write(question) #aqui ele mostra a pergunta que o usuário fez novamente, que é a última mensagem que o usuáruio fez
-    st.session_state.messages.append({'role': 'user', 'content': question}) # aqui ele adiciona a última pergunta que o usuário fez no histórico de mensagens, dando um append
+st.header('Chat com seus Documentos (RAG) 🏈')
 
-    with st.spinner('Buscando resposta...'):
-        response = ask_question(
-            model=selected_model,
-            query=question,
-            vector_store=vector_store,
-        )
+# Inicializa o VectorStore (com cache)
+vector_store = get_vectorstore()
 
-        st.chat_message('ai').write(response)
-        st.session_state.messages.append({'role': 'ai', 'content': response})
+# Sidebar
+with st.sidebar:
+    st.header('Configurações')
+    uploaded_files = st.file_uploader("Upload de PDFs", type=['pdf'], accept_multiple_files=True)
+    
+    if uploaded_files:
+        if st.button("Processar Arquivos"):
+            with st.spinner("Processando e indexando..."):
+                for pdf in uploaded_files:
+                    process_and_add_pdf(pdf, vector_store)
+                st.success("Processamento concluído!")
+
+    model_choice = st.selectbox("Modelo", ['gpt-3.5-turbo', 'gpt-4o'])
+
+# Inicializa Histórico
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
+
+# Exibe mensagens anteriores
+for message in st.session_state.chat_history:
+    if isinstance(message, dict): # Formato simples para exibição
+         with st.chat_message(message['role']):
+            st.write(message['content'])
+    else: # Formato LangChain (HumanMessage/AIMessage)
+        role = "user" if message.type == "human" else "ai"
+        with st.chat_message(role):
+            st.write(message.content)
+
+# Input do Usuário
+user_query = st.chat_input("Digite sua pergunta aqui...")
+
+if user_query:
+    # Mostra pergunta do usuário
+    st.chat_message("user").write(user_query)
+    
+    llm = ChatOpenAI(model=model_choice)
+    
+    # 1. Cria retriever que entende histórico
+    history_aware_retriever = get_context_retriever_chain(vector_store, llm)
+    
+    # 2. Cria a chain final de resposta
+    rag_chain = get_conversational_rag_chain(history_aware_retriever, llm)
+    
+    with st.spinner("Pensando..."):
+        # A mágica acontece aqui: passamos o chat_history para a chain
+        response = rag_chain.invoke({
+            "input": user_query,
+            "chat_history": st.session_state.chat_history
+        })
+        
+        answer = response['answer']
+        
+        # Mostra resposta
+        st.chat_message("ai").write(answer)
+        
+        # Atualiza histórico (usando objetos do LangChain para manter o contexto correto)
+        from langchain_core.messages import HumanMessage, AIMessage
+        st.session_state.chat_history.append(HumanMessage(content=user_query))
+        st.session_state.chat_history.append(AIMessage(content=answer))
