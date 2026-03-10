@@ -134,7 +134,6 @@ if user_query:
     # DEBUG: verifica o que o retriever está encontrando
     retriever = vector_store.as_retriever(search_kwargs={"k": 4})
     docs_encontrados = retriever.invoke(user_query)
-    st.info(f"DEBUG: Retriever encontrou {len(docs_encontrados)} documento(s) relevantes")
     if docs_encontrados:
         with st.expander("Ver contexto recuperado"):
             for i, doc in enumerate(docs_encontrados):
@@ -156,3 +155,4 @@ if user_query:
 
         st.session_state.chat_history.append(HumanMessage(content=user_query))
         st.session_state.chat_history.append(AIMessage(content=answer))
+        
