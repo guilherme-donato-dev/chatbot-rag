@@ -12,10 +12,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_google_genai import ChatGoogleGenerativeAI  
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_huggingface import HuggingFaceEmbeddings
 
-# Configuração inicial
 load_dotenv()
 st.set_page_config(page_title='Chat RAG Inteligente', page_icon='🏈')
 
@@ -34,13 +33,20 @@ def process_and_add_pdf(file, vector_store):
     try:
         loader = PyPDFLoader(temp_file_path)
         docs = loader.load()
+        st.info(f"DEBUG: PDF carregado com {len(docs)} página(s)")
 
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         chunks = text_splitter.split_documents(docs)
+        st.info(f"DEBUG: Gerados {len(chunks)} chunks")
 
         if chunks:
             vector_store.add_documents(chunks)
+            total = vector_store._collection.count()
+            st.info(f"DEBUG: Total de documentos no banco: {total}")
             return True
+        else:
+            st.warning("DEBUG: Nenhum chunk gerado!")
+            return False
     except Exception as e:
         st.error(f"Erro ao processar PDF: {e}")
         return False
@@ -48,7 +54,7 @@ def process_and_add_pdf(file, vector_store):
         os.remove(temp_file_path)
 
 def get_context_retriever_chain(vector_store, llm):
-    retriever = vector_store.as_retriever()
+    retriever = vector_store.as_retriever(search_kwargs={"k": 4})
 
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="chat_history"),
@@ -61,13 +67,13 @@ def get_context_retriever_chain(vector_store, llm):
 def get_conversational_rag_chain(retriever_chain, llm):
     prompt = ChatPromptTemplate.from_messages([
         ("system", """Você é um assistente que responde perguntas com base EXCLUSIVAMENTE no contexto fornecido abaixo.
-        O contexto foi extraído de documentos enviados pelo usuário.
-        Se a resposta estiver no contexto, responda com base nele.
-        Se não estiver, diga que não encontrou a informação nos documentos.
-        NÃO diga que não consegue acessar arquivos — o conteúdo já foi extraído e está no contexto abaixo.
+O contexto foi extraído de documentos enviados pelo usuário.
+Se a resposta estiver no contexto, responda com base nele.
+Se não estiver, diga que não encontrou a informação nos documentos.
+NÃO diga que não consegue acessar arquivos — o conteúdo já foi extraído e está no contexto abaixo.
 
-        Contexto:
-        {context}"""),
+Contexto:
+{context}"""),
         MessagesPlaceholder(variable_name="chat_history"),
         ("user", "{input}"),
     ])
@@ -88,6 +94,10 @@ def get_conversational_rag_chain(retriever_chain, llm):
 st.header('Chat com seus Documentos (RAG) 🏈')
 
 vector_store = get_vectorstore()
+
+# Mostra quantos docs estão no banco
+total_docs = vector_store._collection.count()
+st.caption(f"📚 Documentos indexados no banco: {total_docs}")
 
 with st.sidebar:
     st.header('Configurações')
@@ -119,7 +129,17 @@ user_query = st.chat_input("Digite sua pergunta aqui...")
 if user_query:
     st.chat_message("user").write(user_query)
 
-    llm = ChatGoogleGenerativeAI(model=model_choice)  # ← Trocado
+    llm = ChatGoogleGenerativeAI(model=model_choice)
+
+    # DEBUG: verifica o que o retriever está encontrando
+    retriever = vector_store.as_retriever(search_kwargs={"k": 4})
+    docs_encontrados = retriever.invoke(user_query)
+    st.info(f"DEBUG: Retriever encontrou {len(docs_encontrados)} documento(s) relevantes")
+    if docs_encontrados:
+        with st.expander("Ver contexto recuperado"):
+            for i, doc in enumerate(docs_encontrados):
+                st.write(f"**Chunk {i+1}:**")
+                st.write(doc.page_content[:300] + "...")
 
     history_aware_retriever = get_context_retriever_chain(vector_store, llm)
     rag_chain = get_conversational_rag_chain(history_aware_retriever, llm)
