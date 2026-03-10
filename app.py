@@ -9,7 +9,8 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.output_parsers import StrOutputParser   
 
 # Configuração inicial
@@ -22,7 +23,7 @@ PERSIST_DIRECTORY = 'db'
 # Cache para evitar recarregar o modelo/banco a cada interação
 @st.cache_resource
 def get_vectorstore():
-    embedding = OpenAIEmbeddings()
+    embedding = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     if os.path.exists(PERSIST_DIRECTORY):
         return Chroma(persist_directory=PERSIST_DIRECTORY, embedding_function=embedding)
     return Chroma(persist_directory=PERSIST_DIRECTORY, embedding_function=embedding)
