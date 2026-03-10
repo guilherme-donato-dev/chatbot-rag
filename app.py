@@ -4,8 +4,8 @@ import streamlit as st
 from dotenv import load_dotenv
 
 # LangChain Imports
-from langchain.chains import create_history_aware_retriever, create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_classic.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -19,7 +19,6 @@ from langchain_huggingface import HuggingFaceEmbeddings
 load_dotenv()
 st.set_page_config(page_title='Chat RAG Inteligente', page_icon='🏈')
 
-# Definição de constantes
 PERSIST_DIRECTORY = 'db'
 
 @st.cache_resource
