@@ -12,7 +12,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI 
 from langchain_huggingface import HuggingFaceEmbeddings
 
 # Configuração inicial
@@ -93,7 +93,7 @@ with st.sidebar:
                     process_and_add_pdf(pdf, vector_store)
                 st.success("Processamento concluído!")
 
-    model_choice = st.selectbox("Modelo", ['gpt-3.5-turbo', 'gpt-4o'])
+    model_choice = st.selectbox("Modelo", ['gemini-2.0-flash', 'gemini-1.5-pro'])
 
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
@@ -112,7 +112,7 @@ user_query = st.chat_input("Digite sua pergunta aqui...")
 if user_query:
     st.chat_message("user").write(user_query)
 
-    llm = ChatOpenAI(model=model_choice)
+    llm = ChatGoogleGenerativeAI(model=model_choice)  # ← Trocado
 
     history_aware_retriever = get_context_retriever_chain(vector_store, llm)
     rag_chain = get_conversational_rag_chain(history_aware_retriever, llm)
